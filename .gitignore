@@ -1,0 +1,6 @@
+# ignore files
+tags
+.*.sw*
+
+# ignore folders
+/build*/
