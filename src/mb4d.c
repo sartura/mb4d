@@ -489,10 +489,6 @@ static void wan_multicast_receive(void)
 	uint16_t ipv4_total_length;
 	const unsigned char *ipv4_total_length_offset = ipv4_header_start + offsetof(struct iphdr, tot_len);
 	memcpy(&ipv4_total_length, ipv4_total_length_offset, sizeof(ipv4_total_length));
-	if (ipv4_header_start + ntohs(ipv4_total_length) > datagram_end) {
-		_error("ipv4 payload size overflows datagram size");
-		return;
-	}
 
 	uint32_t ipv4_destination_address;
 	const uint8_t *ipv4_destination_address_offset = ipv4_header_start + offsetof(struct iphdr, daddr);
