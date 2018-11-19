@@ -122,7 +122,7 @@ int main(int argc, char **argv)
 		_error("inet_pton error: %s", strerror(errno));
 		return EXIT_FAILURE;
 	}
-	// mld_request_source->sin6_port = 0;
+	// mld_request_source.sin6_port = 0;
 
 	error = iptv_igmp_receive_socket_init();
 	if (error < 0) {
@@ -201,9 +201,9 @@ static int iptv_igmp_receive_socket_init(void)
 	int error = 0;
 
 	// NOTE:
-	// - we use AF_PACKET + ETH_P_ALL to intercept IGMP packets
-	// - because there can be only one socket on the system on which the call MRT_INIT succeeds
-	// - i.e it is not possible to run more than one multicast routing daemon that use MRT_INIT
+	// - we use AF_PACKET + ETH_P_ALL to intercept all IGMP packets
+	// - another option to get all IGMP packets would be to open a control socket for kernel multicast routing table
+	// - but since there can be only one socket on the system on which the call MRT_INIT succeeds that soultion is not feasible
 
 #if 1
 	error = iptv_igmp_receive_socket = socket(AF_PACKET, SOCK_DGRAM, htons(ETH_P_ALL));
@@ -229,13 +229,15 @@ static int iptv_igmp_receive_socket_init(void)
 		exit_cb(SIGABRT);
 	}
 
-	// enable all IGMP traffic on socket
 	error = setsockopt(iptv_igmp_receive_socket, IPPROTO_IP, MRT_INIT, &(int){1}, sizeof(int));
 	if (error < 0) {
 		_error("setsockopt error: %s", strerror(errno));
 		exit_cb(SIGABRT);
 	}
-	// TODO: MRT_ADD_VIF and MRT_DONE on exit
+
+	// TODO:
+	//  - MRT_ADD_VIF
+	//  - MRT_DONE on exit
 #endif
 
 	return 0;
@@ -252,7 +254,7 @@ static int iptv_multicast_send_socket_init(void)
 	// b) create a UDP multicast socket and send a multicast packet using udp payload from received ipv4 in ipv6 packet
 
 #if 1
-	error = iptv_multicast_send_socket = socket(AF_INET, SOCK_RAW, IPPROTO_RAW);
+	error = iptv_multicast_send_socket = socket(AF_INET, SOCK_RAW, IPPROTO_RAW); // IPPROTO_RAW implies enabled IP_HDRINCL
 	if (error < 0) {
 		_error("socket error: %s", strerror(errno));
 		return -1;
@@ -291,10 +293,8 @@ static int wan_mld_send_socket_init(void)
 	int error = 0;
 
 	// NOTE:
-	// - since received packets are IPPROTO_IPIP we can not use the same socket for sending mld requests i.e joining group
-	//   and receiving encapsulated multicast data as we normally would
-	// - instead we use wan_mld_send_socket just for sending mld requests
-	//   and wan_multicast_receive_socket for receiving encapsulated multicast data
+	// - we use wan_mld_send_socket just for sending mld requests since MCAST_JOIN_SOURCE_GROUP is not supported on AF_PACKET
+	// - and we use AF_PACKET for receiving because kernel is not sending multicast packets to the socket if we use IPPROTO_IPIP a protocol
 
 	error = wan_mld_send_socket = socket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP);
 	if (error < 0) {
@@ -327,7 +327,9 @@ static int wan_multicast_receive_socket_init(void)
 		return -1;
 	}
 #else
-	// TODO: not working...
+	// NOTE:
+	// - not working as expected...
+	// - nothing is received on socket after MCAST_JOIN_SOURCE_GROUP is set although multicast packets are received (seen with tcpdump)
 
 	error = wan_multicast_receive_socket = socket(AF_INET6, SOCK_RAW, IPPROTO_IPIP);
 	if (error < 0) {
@@ -335,11 +337,24 @@ static int wan_multicast_receive_socket_init(void)
 		return -1;
 	}
 
+#if 0
 	struct ifreq ifr = {{0}};
 	snprintf(ifr.ifr_name, sizeof(ifr.ifr_name), "%s", wan_ifname);
 	error = setsockopt(wan_multicast_receive_socket, SOL_SOCKET, SO_BINDTODEVICE, (void *) &ifr, sizeof(ifr));
 	if (error < 0) {
 		_error("setsockopt error: %s", strerror(errno));
+		return -1;
+	}
+#endif
+
+	struct sockaddr_in6 bind_address = {0};
+	bind_address.sin6_family = AF_INET6;
+	bind_address.sin6_addr = in6addr_any;
+	bind_address.sin6_port = htons(10000);
+
+	error = bind(wan_multicast_receive_socket, (struct sockaddr *) &bind_address, sizeof(bind_address));
+	if (error < 0) {
+		_error("bind error: %s", strerror(errno));
 		return -1;
 	}
 #endif
@@ -424,7 +439,7 @@ static void iptv_igmp_receive(void)
 		_error("inet_pton error: %s", strerror(errno));
 		return;
 	}
-	group_address->sin6_port = 0; // TODO: ??
+	// group_address->sin6_port = 0; // TODO: ??
 
 	// send send SSM MLD request
 	error = setsockopt(wan_mld_send_socket, IPPROTO_IPV6, mld_request_action, &mld_request, sizeof(mld_request));
