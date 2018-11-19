@@ -352,21 +352,30 @@ static void iptv_igmp_receive(void)
 	static unsigned char datagram[1024 * 8] = {0};
 
 	ssize_t datagram_size = recv(iptv_igmp_receive_socket, datagram, sizeof datagram, 0);
+	const unsigned char *datagram_end = datagram + datagram_size;
+
 	if (datagram_size < 0) {
 		_error("recv error: %s", strerror(errno));
 		return;
 	}
 
-	// TODO: check if we have enough bytes read as we parse/read along datagram array
+	const unsigned char *ipv4_header_start = datagram;
+	if (ipv4_header_start + sizeof(struct iphdr) > datagram_end) {
+		_error("ipv4 header size overflows datagram size");
+		return;
+	}
 
-	const unsigned char *ip_header_start = datagram;
-	const unsigned char *ip_protocol_offset = ip_header_start + offsetof(struct iphdr, protocol);
-
+	const unsigned char *ip_protocol_offset = ipv4_header_start + offsetof(struct iphdr, protocol);
 	if (*ip_protocol_offset != IPPROTO_IGMP) {
 		return;
 	}
 
-	const unsigned char *igmp_header_start = datagram + ((*ip_header_start & 0x0F) * 4);
+	const unsigned char *igmp_header_start = datagram + ((*ipv4_header_start & 0x0F) * 4);
+	if (igmp_header_start + sizeof(struct igmphdr) > datagram_end) {
+		_error("ipv4 header size overflows datagram size");
+		return;
+	}
+
 	const unsigned char *igmp_type_offset = igmp_header_start + offsetof(struct igmphdr, type);
 	const unsigned char *igmp_group_offset = igmp_header_start + offsetof(struct igmphdr, group);
 
@@ -430,36 +439,48 @@ static void wan_multicast_receive(void)
 	static unsigned char datagram[1024 * 8] = {0};
 
 	ssize_t datagram_size = recv(wan_multicast_receive_socket, datagram, sizeof datagram, 0);
+	const unsigned char *datagram_end = datagram + datagram_size;
+
 	if (datagram_size < 0) {
 		_error("recv error: %s", strerror(errno));
 		return;
 	}
 
-	// TODO: check if we have enough bytes read as we parse/read along datagram array
-
 	const unsigned char *ipv6_header_start = datagram;
-	const unsigned char *ipv6_next_header_offset = ipv6_header_start + offsetof(struct ip6_hdr, ip6_nxt);
-	const unsigned char *ipv6_source_address_offset = ipv6_header_start + offsetof(struct ip6_hdr, ip6_src);
-	// const unsigned char *ipv6_destination_address_offset = ipv6_header_start + offsetof(struct ip6_hdr, ip6_dst);
+	if (ipv6_header_start + sizeof(struct ip6_hdr) > datagram_end) {
+		_error("ipv6 header size overflows datagram size");
+		return;
+	}
 
+	const unsigned char *ipv6_next_header_offset = ipv6_header_start + offsetof(struct ip6_hdr, ip6_nxt);
 	if (*ipv6_next_header_offset != IPPROTO_IPIP) {
 		return;
 	}
 
+	const unsigned char *ipv6_source_address_offset = ipv6_header_start + offsetof(struct ip6_hdr, ip6_src);
 	if (memcmp(ipv6_source_address_offset, &mld_request_source.sin6_addr, sizeof(struct in6_addr)) != 0) {
 		return;
 	}
 
+	// const unsigned char *ipv6_destination_address_offset = ipv6_header_start + offsetof(struct ip6_hdr, ip6_dst);
 	// TODO: check that ipv6_destination_address has MLD_REQUEST_GROUP_ADDRESS_PREFIX
 
-	const unsigned char *ip4_header_start = datagram + sizeof(struct ip6_hdr);
+	const unsigned char *ipv4_header_start = datagram + sizeof(struct ip6_hdr);
+	if (ipv4_header_start + sizeof(struct iphdr) > datagram_end) {
+		_error("ipv4 header size overflows datagram size");
+		return;
+	}
 
 	uint16_t ipv4_total_length;
-	const unsigned char *ipv4_total_length_offset = ip4_header_start + offsetof(struct iphdr, tot_len);
+	const unsigned char *ipv4_total_length_offset = ipv4_header_start + offsetof(struct iphdr, tot_len);
 	memcpy(&ipv4_total_length, ipv4_total_length_offset, sizeof(ipv4_total_length));
+	if (ipv4_header_start + ntohs(ipv4_total_length) > datagram_end) {
+		_error("ipv4 payload size overflows datagram size");
+		return;
+	}
 
 	uint32_t ipv4_destination_address;
-	const uint8_t *ipv4_destination_address_offset = ip4_header_start + offsetof(struct iphdr, daddr);
+	const uint8_t *ipv4_destination_address_offset = ipv4_header_start + offsetof(struct iphdr, daddr);
 	memcpy(&ipv4_destination_address, ipv4_destination_address_offset, sizeof(ipv4_destination_address));
 
 	// NOTE:
@@ -469,7 +490,7 @@ static void wan_multicast_receive(void)
 	sendto_address.sin_addr.s_addr = ipv4_destination_address;
 
 	ssize_t sent = sendto(iptv_multicast_send_socket,
-						  ip4_header_start,
+						  ipv4_header_start,
 						  ntohs(ipv4_total_length),
 						  0,
 						  (struct sockaddr *) &sendto_address,
