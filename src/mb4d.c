@@ -53,9 +53,6 @@
 
 #define SIZEOF_ARRAY(x) (sizeof(x) / sizeof(x[0]))
 
-#define MLD_REQUEST_SOURCE_ADDRESS "2003:1b0b:fffd:ffff:0:c613:8c01:0"
-#define MLD_REQUEST_GROUP_ADDRESS_PREFIX "ff38::"
-
 static int iptv_igmp_receive_socket_init(void);
 static int iptv_multicast_send_socket_init(void);
 static int wan_mld_send_socket_init(void);
@@ -64,11 +61,13 @@ static void iptv_igmp_receive(void);
 static void wan_multicast_receive(void);
 static void exit_cb(int signal);
 
+static const char *mld_request_source_address = NULL;
+static struct sockaddr_in6 mld_request_source = {0};
+static const char *mld_request_group_address_prefix = NULL;
 static const char *iptv_ifname = NULL;
 static uint32_t iptv_ifindex = 0;
 static const char *wan_ifname = NULL;
 static uint32_t wan_ifindex = 0;
-static struct sockaddr_in6 mld_request_source = {0};
 static int iptv_igmp_receive_socket = -1;
 static int iptv_multicast_send_socket = -1;
 static int wan_mld_send_socket = -1;
@@ -76,13 +75,13 @@ static int wan_multicast_receive_socket = -1;
 
 int main(int argc, char **argv)
 {
-	static const char usage[] = "Usage: %s -i <iptv_ifname> -w <wan_ifname>\n";
+	static const char usage[] = "Usage: %s -i <iptv_ifname> -w <wan_ifname> -s <mld_source_address> -p <mld_group_address_prefix>\n";
 
 	int error = 0;
 	struct pollfd poll_fd[2];
 
 	int opt;
-	while ((opt = getopt(argc, argv, "i:w:")) != -1) {
+	while ((opt = getopt(argc, argv, "i:w:s:p:")) != -1) {
 		switch (opt) {
 			case 'i':
 				iptv_ifname = optarg;
@@ -90,13 +89,19 @@ int main(int argc, char **argv)
 			case 'w':
 				wan_ifname = optarg;
 				break;
+			case 's':
+				mld_request_source_address = optarg;
+				break;
+			case 'p':
+				mld_request_group_address_prefix = optarg;
+				break;
 			default:
 				printf(usage, argv[0]);
 				return EXIT_FAILURE;
 		}
 	}
 
-	if (iptv_ifname == NULL || wan_ifname == NULL) {
+	if (iptv_ifname == NULL || wan_ifname == NULL || mld_request_source_address == NULL || mld_request_group_address_prefix == NULL) {
 		printf(usage, argv[0]);
 		return EXIT_FAILURE;
 	}
@@ -115,9 +120,8 @@ int main(int argc, char **argv)
 		return EXIT_FAILURE;
 	}
 
-	// TODO: load mld request source adddress from config or command-line option
 	mld_request_source.sin6_family = AF_INET6;
-	error = inet_pton(AF_INET6, MLD_REQUEST_SOURCE_ADDRESS, &(mld_request_source.sin6_addr));
+	error = inet_pton(AF_INET6, mld_request_source_address, &(mld_request_source.sin6_addr));
 	if (error != 1) {
 		_error("inet_pton error: %s", strerror(errno));
 		return EXIT_FAILURE;
@@ -423,7 +427,7 @@ static void iptv_igmp_receive(void)
 	_trace("ipv4 group address: %s", group_address_ipv4_str);
 
 	char group_address_ipv6_str[INET6_ADDRSTRLEN] = {0};
-	strcat(group_address_ipv6_str, MLD_REQUEST_GROUP_ADDRESS_PREFIX);
+	strcat(group_address_ipv6_str, mld_request_group_address_prefix);
 	strcat(group_address_ipv6_str, group_address_ipv4_str);
 	_trace("ipv6 group address: %s", group_address_ipv6_str);
 
