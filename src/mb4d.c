@@ -190,15 +190,13 @@ static void exit_cb(int signal)
 
 static int iptv_igmp_receive_socket_init(void)
 {
-
 	// NOTE:
 	// - we use AF_PACKET + ETH_P_ALL to intercept all IGMP packets
-	// - another option to get all IGMP packets would be to open a control socket for kernel multicast routing table using MRT_INIT socket option
+	// - another option to get all IGMP packets would be to open a control socket for kernel multicast routing table using MRT_INIT socket options
 	// - but since there can be only one socket on the system on which the call MRT_INIT succeeds that soultion is not feasible
 
 	int error = 0;
 
-#if 1
 	error = iptv_igmp_receive_socket = socket(AF_PACKET, SOCK_DGRAM, htons(ETH_P_ALL));
 	if (error < 0) {
 		_error("socket error: %s", strerror(errno));
@@ -215,23 +213,6 @@ static int iptv_igmp_receive_socket_init(void)
 		_error("bind error: %s", strerror(errno));
 		return -1;
 	}
-#else
-	error = iptv_igmp_receive_socket = socket(AF_INET, SOCK_RAW, IPPROTO_IGMP);
-	if (error < 0) {
-		_error("socket error: %s", strerror(errno));
-		exit_cb(SIGABRT);
-	}
-
-	error = setsockopt(iptv_igmp_receive_socket, IPPROTO_IP, MRT_INIT, &(int){1}, sizeof(int));
-	if (error < 0) {
-		_error("setsockopt error: %s", strerror(errno));
-		exit_cb(SIGABRT);
-	}
-
-	// TODO:
-	//  - MRT_ADD_VIF
-	//  - MRT_DONE on exit
-#endif
 
 	return 0;
 }
@@ -242,11 +223,10 @@ static int iptv_multicast_send_socket_init(void)
 	// - we use this socket for sending out received multicast packets from wan
 	// - since the received ipv6 packet has an encapsulated ipv4 multicast packet we have two options:
 	// a) create a raw socket and forward bytes from the start of ipv4 header
-	// b) create a UDP multicast socket and send a multicast packet using udp payload from received ipv4 in ipv6 packet
+	// b) create a UDP multicast socket and send a multicast packet using udp payload
 
 	int error = 0;
 
-#if 1
 	error = iptv_multicast_send_socket = socket(AF_INET, SOCK_RAW, IPPROTO_RAW); // IPPROTO_RAW implies enabled IP_HDRINCL
 	if (error < 0) {
 		_error("socket error: %s", strerror(errno));
@@ -261,22 +241,6 @@ static int iptv_multicast_send_socket_init(void)
 		_error("setsockopt error: %s", strerror(errno));
 		return -1;
 	}
-#else
-	error = iptv_multicast_send_socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-	if (error < 0) {
-		_error("socket error: %s", strerror(errno));
-		return -1;
-	}
-
-	error =
-		setsockopt(iptv_multicast_send_socket, IPPROTO_IP, IP_MULTICAST_IF, &(struct ip_mreqn){.imr_ifindex = iptv_ifindex}, sizeof(struct ip_mreqn));
-	if (error < 0) {
-		_error("setsockopt error: %s", strerror(errno));
-		return -1;
-	}
-
-	// TODO: setsockopt IP_MULTICAST_LOOP off
-#endif
 
 	return 0;
 }
@@ -334,7 +298,7 @@ static void iptv_igmp_receive(void)
 	}
 
 	const unsigned char *igmp_type_offset = igmp_header_start + offsetof(struct igmphdr, type);
-	const unsigned char *igmp_group_offset = igmp_header_start + offsetof(struct igmphdr, group);
+	const unsigned char *igmp_group_address_offset = igmp_header_start + offsetof(struct igmphdr, group);
 
 	// join or lave action
 	int mld_request_action;
@@ -356,7 +320,7 @@ static void iptv_igmp_receive(void)
 
 	// craft ipv6 group address based on ipv4 grouup address from IGMP request
 	char group_address_ipv4_str[INET_ADDRSTRLEN] = {0};
-	if (!inet_ntop(AF_INET, igmp_group_offset, group_address_ipv4_str, sizeof group_address_ipv4_str)) {
+	if (!inet_ntop(AF_INET, igmp_group_address_offset, group_address_ipv4_str, sizeof group_address_ipv4_str)) {
 		_error("inet_ntop error: %s", strerror(errno));
 		return;
 	}
@@ -407,7 +371,6 @@ static void wan_multicast_receive(void)
 	}
 
 	if (!IN6_ARE_ADDR_EQUAL(&mld_request_source.sin6_addr, &ipv6_source_address.sin6_addr)) {
-		_error("!IN6_ARE_ADDR_EQUAL");
 		return;
 	}
 
