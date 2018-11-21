@@ -19,7 +19,6 @@
 
 #include <linux/if_packet.h>
 #include <linux/igmp.h>
-#include <linux/mroute.h>
 
 #define LOG_TRACE
 #define LOG_ERROR
@@ -55,8 +54,7 @@
 
 static int iptv_igmp_receive_socket_init(void);
 static int iptv_multicast_send_socket_init(void);
-static int wan_mld_send_socket_init(void);
-static int wan_multicast_receive_socket_init(void);
+static int wan_multicast_socket_init(void);
 static void iptv_igmp_receive(void);
 static void wan_multicast_receive(void);
 static void exit_cb(int signal);
@@ -70,8 +68,7 @@ static const char *wan_ifname = NULL;
 static uint32_t wan_ifindex = 0;
 static int iptv_igmp_receive_socket = -1;
 static int iptv_multicast_send_socket = -1;
-static int wan_mld_send_socket = -1;
-static int wan_multicast_receive_socket = -1;
+static int wan_multicast_socket = -1;
 
 int main(int argc, char **argv)
 {
@@ -138,12 +135,7 @@ int main(int argc, char **argv)
 		exit_cb(SIGABRT);
 	}
 
-	error = wan_mld_send_socket_init();
-	if (error < 0) {
-		exit_cb(SIGABRT);
-	}
-
-	error = wan_multicast_receive_socket_init();
+	error = wan_multicast_socket_init();
 	if (error < 0) {
 		exit_cb(SIGABRT);
 	}
@@ -151,7 +143,7 @@ int main(int argc, char **argv)
 	poll_fd[0].fd = iptv_igmp_receive_socket;
 	poll_fd[0].events = POLLIN;
 
-	poll_fd[1].fd = wan_multicast_receive_socket;
+	poll_fd[1].fd = wan_multicast_socket;
 	poll_fd[1].events = POLLIN;
 
 	signal(SIGINT, exit_cb);
@@ -186,12 +178,8 @@ static void exit_cb(int signal)
 		close(iptv_multicast_send_socket);
 	}
 
-	if (wan_mld_send_socket > 0) {
-		close(wan_mld_send_socket);
-	}
-
-	if (wan_multicast_receive_socket > 0) {
-		close(wan_multicast_receive_socket);
+	if (wan_multicast_socket > 0) {
+		close(wan_multicast_socket);
 	}
 
 	fprintf(stderr, "\n");
@@ -202,12 +190,13 @@ static void exit_cb(int signal)
 
 static int iptv_igmp_receive_socket_init(void)
 {
-	int error = 0;
 
 	// NOTE:
 	// - we use AF_PACKET + ETH_P_ALL to intercept all IGMP packets
-	// - another option to get all IGMP packets would be to open a control socket for kernel multicast routing table
+	// - another option to get all IGMP packets would be to open a control socket for kernel multicast routing table using MRT_INIT socket option
 	// - but since there can be only one socket on the system on which the call MRT_INIT succeeds that soultion is not feasible
+
+	int error = 0;
 
 #if 1
 	error = iptv_igmp_receive_socket = socket(AF_PACKET, SOCK_DGRAM, htons(ETH_P_ALL));
@@ -249,13 +238,13 @@ static int iptv_igmp_receive_socket_init(void)
 
 static int iptv_multicast_send_socket_init(void)
 {
-	int error = 0;
-
 	// NOTE:
-	// - we use this socket for sending out multicast packets recevied on wan
-	// - since the received ipv6 packet has an encapsulated ipv4 packet we have two options:
+	// - we use this socket for sending out received multicast packets from wan
+	// - since the received ipv6 packet has an encapsulated ipv4 multicast packet we have two options:
 	// a) create a raw socket and forward bytes from the start of ipv4 header
 	// b) create a UDP multicast socket and send a multicast packet using udp payload from received ipv4 in ipv6 packet
+
+	int error = 0;
 
 #if 1
 	error = iptv_multicast_send_socket = socket(AF_INET, SOCK_RAW, IPPROTO_RAW); // IPPROTO_RAW implies enabled IP_HDRINCL
@@ -292,76 +281,26 @@ static int iptv_multicast_send_socket_init(void)
 	return 0;
 }
 
-static int wan_mld_send_socket_init(void)
+static int wan_multicast_socket_init(void)
 {
+	// NOTE:
+	// - we use this socket for sending out MLDv2 requests and receiving encapsulated multicast packets
+
 	int error = 0;
 
-	// NOTE:
-	// - we use wan_mld_send_socket just for sending mld requests since MCAST_JOIN_SOURCE_GROUP is not supported on AF_PACKET
-	// - and we use AF_PACKET for receiving because kernel is not sending multicast packets to the socket if we use IPPROTO_IPIP a protocol
-
-	error = wan_mld_send_socket = socket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP);
+	error = wan_multicast_socket = socket(AF_INET6, SOCK_RAW, IPPROTO_IPIP);
 	if (error < 0) {
 		_error("socket error: %s", strerror(errno));
 		return -1;
 	}
 
-	return 0;
-}
-
-static int wan_multicast_receive_socket_init(void)
-{
-	int error = 0;
-
-#if 1
-	error = wan_multicast_receive_socket = socket(AF_PACKET, SOCK_DGRAM, htons(ETH_P_IPV6));
-	if (error < 0) {
-		_error("socket error: %s", strerror(errno));
-		return -1;
-	}
-
-	struct sockaddr_ll bind_address = {0};
-	bind_address.sll_family = AF_PACKET;
-	bind_address.sll_protocol = htons(ETH_P_IPV6);
-	bind_address.sll_ifindex = (int) wan_ifindex;
-
-	error = bind(wan_multicast_receive_socket, (struct sockaddr *) &bind_address, sizeof(bind_address));
-	if (error < 0) {
-		_error("bind error: %s", strerror(errno));
-		return -1;
-	}
-#else
-	// NOTE:
-	// - not working as expected...
-	// - nothing is received on socket after MCAST_JOIN_SOURCE_GROUP is set although multicast packets are received (seen with tcpdump)
-
-	error = wan_multicast_receive_socket = socket(AF_INET6, SOCK_RAW, IPPROTO_IPIP);
-	if (error < 0) {
-		_error("socket error: %s", strerror(errno));
-		return -1;
-	}
-
-#if 0
 	struct ifreq ifr = {{0}};
 	snprintf(ifr.ifr_name, sizeof(ifr.ifr_name), "%s", wan_ifname);
-	error = setsockopt(wan_multicast_receive_socket, SOL_SOCKET, SO_BINDTODEVICE, (void *) &ifr, sizeof(ifr));
+	error = setsockopt(wan_multicast_socket, SOL_SOCKET, SO_BINDTODEVICE, (void *) &ifr, sizeof(ifr));
 	if (error < 0) {
 		_error("setsockopt error: %s", strerror(errno));
 		return -1;
 	}
-#endif
-
-	struct sockaddr_in6 bind_address = {0};
-	bind_address.sin6_family = AF_INET6;
-	bind_address.sin6_addr = in6addr_any;
-	bind_address.sin6_port = htons(10000);
-
-	error = bind(wan_multicast_receive_socket, (struct sockaddr *) &bind_address, sizeof(bind_address));
-	if (error < 0) {
-		_error("bind error: %s", strerror(errno));
-		return -1;
-	}
-#endif
 
 	return 0;
 }
@@ -371,7 +310,6 @@ static void iptv_igmp_receive(void)
 	static unsigned char datagram[1024 * 8] = {0};
 
 	ssize_t datagram_size = recv(iptv_igmp_receive_socket, datagram, sizeof datagram, 0);
-	const unsigned char *datagram_end = datagram + datagram_size;
 
 	if (datagram_size < 0) {
 		_error("recv error: %s", strerror(errno));
@@ -379,7 +317,7 @@ static void iptv_igmp_receive(void)
 	}
 
 	const unsigned char *ipv4_header_start = datagram;
-	if (ipv4_header_start + sizeof(struct iphdr) > datagram_end) {
+	if (ipv4_header_start + sizeof(struct iphdr) > (datagram + datagram_size)) {
 		_error("ipv4 header size overflows datagram size");
 		return;
 	}
@@ -390,15 +328,13 @@ static void iptv_igmp_receive(void)
 	}
 
 	const unsigned char *igmp_header_start = datagram + ((*ipv4_header_start & 0x0F) * 4);
-	if (igmp_header_start + sizeof(struct igmphdr) > datagram_end) {
+	if (igmp_header_start + sizeof(struct igmphdr) > (datagram + datagram_size)) {
 		_error("ipv4 header size overflows datagram size");
 		return;
 	}
 
 	const unsigned char *igmp_type_offset = igmp_header_start + offsetof(struct igmphdr, type);
 	const unsigned char *igmp_group_offset = igmp_header_start + offsetof(struct igmphdr, group);
-
-	// TODO: spoof only pre defnied iptv group addresses?
 
 	// join or lave action
 	int mld_request_action;
@@ -443,10 +379,10 @@ static void iptv_igmp_receive(void)
 		_error("inet_pton error: %s", strerror(errno));
 		return;
 	}
-	// group_address->sin6_port = 0; // TODO: ??
+	// group_address->sin6_port = 0;
 
-	// send send SSM MLD request
-	error = setsockopt(wan_mld_send_socket, IPPROTO_IPV6, mld_request_action, &mld_request, sizeof(mld_request));
+	// send SSM MLD request on wan
+	error = setsockopt(wan_multicast_socket, IPPROTO_IPV6, mld_request_action, &mld_request, sizeof(mld_request));
 	if (error < 0) {
 		_error("setsockopt error: %s", strerror(errno));
 		return;
@@ -457,35 +393,26 @@ static void wan_multicast_receive(void)
 {
 	static unsigned char datagram[1024 * 8] = {0};
 
-	ssize_t datagram_size = recv(wan_multicast_receive_socket, datagram, sizeof datagram, 0);
-	const unsigned char *datagram_end = datagram + datagram_size;
+	struct sockaddr_in6 ipv6_source_address = {0};
+	ssize_t datagram_size = recvfrom(wan_multicast_socket,
+									 datagram,
+									 sizeof datagram,
+									 0,
+									 (struct sockaddr *) &ipv6_source_address,
+									 &(socklen_t){sizeof ipv6_source_address});
 
 	if (datagram_size < 0) {
-		_error("recv error: %s", strerror(errno));
+		_error("recvfrom error: %s", strerror(errno));
 		return;
 	}
 
-	const unsigned char *ipv6_header_start = datagram;
-	if (ipv6_header_start + sizeof(struct ip6_hdr) > datagram_end) {
-		_error("ipv6 header size overflows datagram size");
+	if (!IN6_ARE_ADDR_EQUAL(&mld_request_source.sin6_addr, &ipv6_source_address.sin6_addr)) {
+		_error("!IN6_ARE_ADDR_EQUAL");
 		return;
 	}
 
-	const unsigned char *ipv6_next_header_offset = ipv6_header_start + offsetof(struct ip6_hdr, ip6_nxt);
-	if (*ipv6_next_header_offset != IPPROTO_IPIP) {
-		return;
-	}
-
-	const unsigned char *ipv6_source_address_offset = ipv6_header_start + offsetof(struct ip6_hdr, ip6_src);
-	if (memcmp(ipv6_source_address_offset, &mld_request_source.sin6_addr, sizeof(struct in6_addr)) != 0) {
-		return;
-	}
-
-	// const unsigned char *ipv6_destination_address_offset = ipv6_header_start + offsetof(struct ip6_hdr, ip6_dst);
-	// TODO: check that ipv6_destination_address has MLD_REQUEST_GROUP_ADDRESS_PREFIX
-
-	const unsigned char *ipv4_header_start = datagram + sizeof(struct ip6_hdr);
-	if (ipv4_header_start + sizeof(struct iphdr) > datagram_end) {
+	const unsigned char *ipv4_header_start = datagram;
+	if (ipv4_header_start + sizeof(struct iphdr) > datagram + datagram_size) {
 		_error("ipv4 header size overflows datagram size");
 		return;
 	}
