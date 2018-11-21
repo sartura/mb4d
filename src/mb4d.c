@@ -401,7 +401,7 @@ static void wan_multicast_receive(void)
 						  (struct sockaddr *) &sendto_address,
 						  sizeof(sendto_address));
 	if (sent < 0) {
-		_error("sendto() failed: %s", strerror(errno));
+		_error("sendto error: %s", strerror(errno));
 		return;
 	}
 }
