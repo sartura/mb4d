@@ -229,10 +229,7 @@ static int iptv_multicast_send_socket_init(void)
 		return -1;
 	}
 
-	struct ifreq ifr = {{0}};
-	snprintf(ifr.ifr_name, sizeof(ifr.ifr_name), "%s", iptv_ifname);
-
-	error = setsockopt(iptv_multicast_send_socket, SOL_SOCKET, SO_BINDTODEVICE, (void *) &ifr, sizeof(ifr));
+	error = setsockopt(iptv_multicast_send_socket, SOL_SOCKET, SO_BINDTODEVICE, iptv_ifname, strlen(iptv_ifname));
 	if (error < 0) {
 		_error("setsockopt error: %s", strerror(errno));
 		return -1;
@@ -254,9 +251,7 @@ static int wan_multicast_socket_init(void)
 		return -1;
 	}
 
-	struct ifreq ifr = {{0}};
-	snprintf(ifr.ifr_name, sizeof(ifr.ifr_name), "%s", wan_ifname);
-	error = setsockopt(wan_multicast_socket, SOL_SOCKET, SO_BINDTODEVICE, (void *) &ifr, sizeof(ifr));
+	error = setsockopt(wan_multicast_socket, SOL_SOCKET, SO_BINDTODEVICE, wan_ifname, strlen(wan_ifname));
 	if (error < 0) {
 		_error("setsockopt error: %s", strerror(errno));
 		return -1;
