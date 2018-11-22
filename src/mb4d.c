@@ -188,13 +188,13 @@ static void exit_cb(int signal)
 static int iptv_igmp_receive_socket_init(void)
 {
 	// NOTE:
-	// - we use AF_PACKET + ETH_P_ALL to intercept all IGMP packets
+	// - we use AF_PACKET + ETH_P_IP to intercept all IGMP packets
 	// - another option to get all IGMP packets would be to open a control socket for kernel multicast routing table using MRT_INIT socket options
 	// - but since there can be only one socket on the system on which the call MRT_INIT succeeds that soultion is not feasible
 
 	int error = 0;
 
-	error = iptv_igmp_receive_socket = socket(AF_PACKET, SOCK_DGRAM, htons(ETH_P_ALL));
+	error = iptv_igmp_receive_socket = socket(AF_PACKET, SOCK_DGRAM, htons(ETH_P_IP));
 	if (error < 0) {
 		_error("socket error: %s", strerror(errno));
 		return -1;
@@ -202,9 +202,8 @@ static int iptv_igmp_receive_socket_init(void)
 
 	struct sockaddr_ll bind_address = {0};
 	bind_address.sll_family = AF_PACKET;
-	bind_address.sll_protocol = htons(ETH_P_ALL);
+	bind_address.sll_protocol = htons(ETH_P_IP);
 	bind_address.sll_ifindex = (int) iptv_ifindex;
-
 	error = bind(iptv_igmp_receive_socket, (struct sockaddr *) &bind_address, sizeof(bind_address));
 	if (error < 0) {
 		_error("bind error: %s", strerror(errno));
@@ -397,6 +396,7 @@ static void wan_multicast_receive(void)
 						  0,
 						  (struct sockaddr *) &sendto_address,
 						  sizeof(sendto_address));
+
 	if (sent < 0) {
 		_error("sendto error: %s", strerror(errno));
 		return;
