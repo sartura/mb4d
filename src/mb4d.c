@@ -20,9 +20,6 @@
 #include <linux/if_packet.h>
 #include <linux/igmp.h>
 
-#define LOG_TRACE
-#define LOG_ERROR
-
 #ifdef LOG_TRACE
 #define _trace(fmt, ...)                                                                                                                             \
 	do {                                                                                                                                             \
