@@ -253,7 +253,7 @@ static int iptv_multicast_send_socket_init(void)
 static int wan_multicast_socket_init(void)
 {
 	// NOTE:
-	// - we use this socket for sending out MLDv2 requests and receiving encapsulated multicast packets
+	// - this socket is used for sending out MLDv2 requests and receiving encapsulated multicast packets
 
 	int error = 0;
 
