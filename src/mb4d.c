@@ -48,6 +48,7 @@
 #endif
 
 #define SIZEOF_ARRAY(x) (sizeof(x) / sizeof(x[0]))
+#define DATAGRAM_SIZE (1024 * 8)
 
 static int iptv_igmp_receive_socket_init(void);
 static int iptv_multicast_send_socket_init(void);
@@ -274,7 +275,7 @@ static int wan_multicast_socket_init(void)
 
 static void iptv_igmp_receive(void)
 {
-	static unsigned char datagram[1024 * 8] = {0};
+	static unsigned char datagram[DATAGRAM_SIZE] = {0};
 
 	ssize_t bytes_received = recv(iptv_igmp_receive_socket, datagram, sizeof datagram, 0);
 	if (bytes_received < 0) {
@@ -363,7 +364,7 @@ static void iptv_igmp_receive(void)
 
 static void wan_multicast_receive(void)
 {
-	static unsigned char datagram[1024 * 8] = {0};
+	static unsigned char datagram[DATAGRAM_SIZE] = {0};
 
 	struct sockaddr_in6 ipv6_source_address = {0};
 	ssize_t bytes_received = recvfrom(wan_multicast_socket,
