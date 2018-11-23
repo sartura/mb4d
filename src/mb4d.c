@@ -90,13 +90,13 @@ int main(int argc, char **argv)
 				mld_request_group_address_prefix = optarg;
 				break;
 			default:
-				printf(usage, argv[0]);
+				fprintf(stderr, usage, argv[0]);
 				return EXIT_FAILURE;
 		}
 	}
 
 	if (iptv_ifname == NULL || wan_ifname == NULL || mld_request_source_address == NULL || mld_request_group_address_prefix == NULL) {
-		printf(usage, argv[0]);
+		fprintf(stderr, usage, argv[0]);
 		return EXIT_FAILURE;
 	}
 
@@ -104,7 +104,7 @@ int main(int argc, char **argv)
 	error = iptv_ifindex = if_nametoindex(iptv_ifname);
 	if (error == 0) {
 		_error("if_nametoindex error: %s", strerror(errno));
-		printf(usage, argv[0]);
+		fprintf(stderr, usage, argv[0]);
 		return EXIT_FAILURE;
 	}
 
@@ -112,7 +112,7 @@ int main(int argc, char **argv)
 	error = wan_ifindex = if_nametoindex(wan_ifname);
 	if (error == 0) {
 		_error("if_nametoindex error: %s", strerror(errno));
-		printf(usage, argv[0]);
+		fprintf(stderr, usage, argv[0]);
 		return EXIT_FAILURE;
 	}
 
@@ -121,6 +121,7 @@ int main(int argc, char **argv)
 	error = inet_pton(AF_INET6, mld_request_source_address, &(mld_request_source.sin6_addr));
 	if (error != 1) {
 		_error("inet_pton error: %s", strerror(errno));
+		fprintf(stderr, usage, argv[0]);
 		return EXIT_FAILURE;
 	}
 	// mld_request_source.sin6_port = 0;
