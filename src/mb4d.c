@@ -48,7 +48,7 @@
 #endif
 
 #define SIZEOF_ARRAY(x) (sizeof(x) / sizeof(x[0]))
-#define DATAGRAM_SIZE (1024 * 8)
+#define DATAGRAM_BUFFER_SIZE (1024 * 8)
 
 static int iptv_igmp_receive_socket_init(void);
 static int iptv_multicast_send_socket_init(void);
@@ -275,18 +275,18 @@ static int wan_multicast_socket_init(void)
 
 static void iptv_igmp_receive(void)
 {
-	static unsigned char datagram[DATAGRAM_SIZE] = {0};
+	static unsigned char datagram_buffer[DATAGRAM_BUFFER_SIZE] = {0};
 
-	ssize_t bytes_received = recv(iptv_igmp_receive_socket, datagram, sizeof datagram, 0);
+	ssize_t bytes_received = recv(iptv_igmp_receive_socket, datagram_buffer, sizeof datagram_buffer, 0);
 	if (bytes_received < 0) {
 		_error("recv error: %s", strerror(errno));
 		return;
 	}
 
 	// check enough bytes are received for ipv4 header parsing
-	const unsigned char *ipv4_header_start = datagram;
-	if (ipv4_header_start + sizeof(struct iphdr) > (datagram + bytes_received)) {
-		_error("ipv4 header size overflows datagram size");
+	const unsigned char *ipv4_header_start = datagram_buffer;
+	if (ipv4_header_start + sizeof(struct iphdr) > (datagram_buffer + bytes_received)) {
+		_error("ipv4 header size overflows datagram_buffer size");
 		return;
 	}
 
@@ -297,9 +297,9 @@ static void iptv_igmp_receive(void)
 	}
 
 	// check enough bytes are received for igmp header inspection
-	const unsigned char *igmp_header_start = datagram + ((*ipv4_header_start & 0x0F) * 4);
-	if (igmp_header_start + sizeof(struct igmphdr) > (datagram + bytes_received)) {
-		_error("ipv4 header size overflows datagram size");
+	const unsigned char *igmp_header_start = datagram_buffer + ((*ipv4_header_start & 0x0F) * 4);
+	if (igmp_header_start + sizeof(struct igmphdr) > (datagram_buffer + bytes_received)) {
+		_error("ipv4 header size overflows datagram_buffer size");
 		return;
 	}
 
@@ -364,12 +364,12 @@ static void iptv_igmp_receive(void)
 
 static void wan_multicast_receive(void)
 {
-	static unsigned char datagram[DATAGRAM_SIZE] = {0};
+	static unsigned char datagram_buffer[DATAGRAM_BUFFER_SIZE] = {0};
 
 	struct sockaddr_in6 ipv6_source_address = {0};
 	ssize_t bytes_received = recvfrom(wan_multicast_socket,
-									  datagram,
-									  sizeof datagram,
+									  datagram_buffer,
+									  sizeof datagram_buffer,
 									  0,
 									  (struct sockaddr *) &ipv6_source_address,
 									  &(socklen_t){sizeof ipv6_source_address});
@@ -384,9 +384,9 @@ static void wan_multicast_receive(void)
 	}
 
 	// check enough bytes are received for ipv4 header parsing
-	const unsigned char *ipv4_header_start = datagram;
-	if (ipv4_header_start + sizeof(struct iphdr) > datagram + bytes_received) {
-		_error("ipv4 header size overflows datagram size");
+	const unsigned char *ipv4_header_start = datagram_buffer;
+	if (ipv4_header_start + sizeof(struct iphdr) > datagram_buffer + bytes_received) {
+		_error("ipv4 header size overflows datagram_buffer size");
 		return;
 	}
 
